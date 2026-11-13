@@ -114,6 +114,18 @@
   .row-item .l{grid-column:2 / 4;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
   .row-item .l a{color:var(--hot);font-weight:600;text-decoration:none}
   .row-item .x{border:1px solid var(--rule);background:none;border-radius:999px;padding:4px 10px;font-size:12px;color:var(--text-soft);cursor:pointer}
+  .piles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .pile{border:1px solid var(--rule);background:var(--wall-2);border-radius:12px;padding:7px 4px 8px;text-align:center;cursor:pointer;font-size:12px;font-weight:600;color:var(--text-soft);min-width:0}
+  .pile b{display:block;font-family:var(--display);font-weight:400;font-size:22px;line-height:1.1;color:var(--text);font-variant-numeric:tabular-nums}
+  .pile[aria-pressed="true"]{background:var(--paper);border-color:var(--paper);color:var(--ink-soft)}
+  .pile[aria-pressed="true"] b{color:var(--ink)}
+  .meta-line{align-items:center;min-height:28px}
+  .order{border:1px solid var(--rule);background:none;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap}
+  .order[aria-pressed="true"]{background:var(--hot);border-color:var(--hot);color:#fff}
+  .row-item{grid-template-columns:58px minmax(0,1fr)}
+  .row-item .l{grid-column:1 / 3;align-items:center}
+  .row-item .mv{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px}
+  .row-item .x{color:var(--text)}
   .foot{font-size:12px;color:var(--text-soft);margin-top:auto;padding-top:10px}
   .foot a{color:var(--text)}
   [hidden]{display:none !important}
@@ -126,15 +138,17 @@
   <header>
     <h1 class="brand">Sound<b>check</b></h1>
     <div class="tabs" role="group" aria-label="View">
-      <button type="button" id="tabDeck" aria-pressed="true">Deck</button>
-      <button type="button" id="tabList" aria-pressed="false">Shortlist <span id="listCount">0</span></button>
+      <button type="button" id="viewCards" aria-pressed="true">Cards</button>
+      <button type="button" id="viewList" aria-pressed="false">List</button>
     </div>
   </header>
 
-  <section id="deckView" aria-label="Deck">
+  <div class="piles" id="piles" role="group" aria-label="Pile"></div>
+  <div class="chips" id="chips" role="group" aria-label="Genre"></div>
+  <div class="meta-line"><span id="progress"></span><button type="button" class="order" id="order"></button></div>
+
+  <section id="deckView" aria-label="Cards">
     <div style="display:flex;flex-direction:column;gap:12px">
-      <div class="chips" id="chips" role="group" aria-label="Genre"></div>
-      <div class="meta-line"><span id="progress"></span><span>Soonest show first</span></div>
       <div class="stack" id="stack"></div>
       <div class="player" id="player"></div>
       <div class="actions">
@@ -142,11 +156,11 @@
         <button type="button" class="act-btn undo" id="btnUndo">Undo</button>
         <button type="button" class="act-btn yes" id="btnYes">Shortlist →</button>
       </div>
-      <p class="hint">Swipe the ticket, or use the arrow keys. Press play once and the next acts start by themselves.</p>
+      <p class="hint">Swipe the ticket, or use the arrow keys. Pick a pile above to go through the remaining, shortlisted or passed shows separately.</p>
     </div>
   </section>
 
-  <section id="listView" aria-label="Shortlist" hidden>
+  <section id="listView" aria-label="List" hidden>
     <div class="list" id="list"></div>
   </section>
 
@@ -250,10 +264,15 @@ var shows = RAW.map(function(r){
 shows.forEach(function(x){ x.clash = shows.filter(function(y){ return y !== x && y.d === x.d; }).map(function(y){ return y.a; }); });
 
 // ---- saved picks (this browser only) ----
-var KEY = "concertSwipe.v1", picks = {}, genre = "All", autoplay = true;
-try { var saved = JSON.parse(localStorage.getItem(KEY) || "{}"); picks = saved.picks || {}; genre = saved.genre || "All"; autoplay = saved.autoplay !== false; } catch(e){}
-function persist(){ try { localStorage.setItem(KEY, JSON.stringify({picks:picks, genre:genre, autoplay:autoplay})); } catch(e){} }
-var history = [];
+var KEY = "concertSwipe.v1", picks = {}, genre = "All", autoplay = true, shuffle = false;
+try { var saved = JSON.parse(localStorage.getItem(KEY) || "{}"); picks = saved.picks || {}; genre = saved.genre || "All"; autoplay = saved.autoplay !== false; shuffle = saved.shuffle === true; } catch(e){}
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify({picks:picks, genre:genre, autoplay:autoplay, shuffle:shuffle})); } catch(e){} }
+
+var PILES = [["rest","Remaining"],["yes","Shortlist"],["no","Passed"]];
+var pile = "rest", view = "cards";
+var undoStack = [], reviewed = {}, snap = null, rand = {};
+function reshuffle(){ shows.forEach(function(x){ rand[x.id] = Math.random(); }); }
+reshuffle();
 
 var genres = ["All"].concat(shows.map(function(x){return x.g;}).filter(function(g,i,arr){ return arr.indexOf(g) === i; }));
 if (genres.indexOf(genre) < 0) genre = "All";
@@ -261,8 +280,17 @@ if (genres.indexOf(genre) < 0) genre = "All";
 var $ = function(id){ return document.getElementById(id); };
 var stackEl = $("stack"), playerEl = $("player"), listEl = $("list");
 
+function inPile(x, p){ return p === "rest" ? !picks[x.id] : picks[x.id] === p; }
 function pool(){ return shows.filter(function(x){ return genre === "All" || x.g === genre; }); }
-function queue(){ return pool().filter(function(x){ return !picks[x.id]; }); }
+function members(p){ return pool().filter(function(x){ return inPile(x, p); }); }
+// A run through Shortlist or Passed works on a snapshot, so a card you keep still moves on.
+function startRun(){ reviewed = {}; undoStack = []; snap = pile === "rest" ? null : members(pile).map(function(x){ return x.id; }); }
+function runTotal(){ return pile === "rest" ? pool().length : pool().filter(function(x){ return snap.indexOf(x.id) >= 0; }).length; }
+function queue(){
+  var src = pile === "rest" ? members("rest") : pool().filter(function(x){ return snap.indexOf(x.id) >= 0 && !reviewed[x.id]; });
+  return shuffle ? src.slice().sort(function(a,b){ return rand[a.id] - rand[b.id]; }) : src;
+}
+
 function dateParts(d){
   var dt = new Date(d + "T12:00:00");
   var days = Math.round((dt - new Date(todayIso + "T12:00:00")) / 86400000);
@@ -274,7 +302,7 @@ function ytUrl(x){ return "https://www.youtube.com/results?search_query=" + enco
 function spUrl(x){ return x.sp ? "https://open.spotify.com/" + x.sp.type + "/" + x.sp.sid : "https://open.spotify.com/search/" + encodeURIComponent(x.a); }
 
 // ---- Spotify player: iFrame API when it loads, plain embed otherwise ----
-var spApi = null, controller = null, controllerHost = null, userPlayed = false, currentId = null;
+var spApi = null, controller = null, controllerHost = null, userPlayed = false, currentId = null, spReady = false, pendingUri = null;
 window.onSpotifyIframeApiReady = function(api){ spApi = api; currentId = null; renderPlayer(queue()[0]); };
 
 function renderPlayer(x){
@@ -293,18 +321,22 @@ function renderPlayer(x){
   var uri = "spotify:" + x.sp.type + ":" + x.sp.sid;
   if (spApi) {
     if (controller && controllerHost && playerEl.contains(controllerHost)) {
-      controller.loadUri(uri);
-      if (userPlayed && autoplay) { try { controller.play(); } catch(e){} }
+      if (spReady) { controller.loadUri(uri); if (userPlayed && autoplay) { try { controller.play(); } catch(e){} } }
+      else pendingUri = uri; // the embed is still loading; switch track once it reports ready
       var rows = playerEl.querySelectorAll(".row"); for (var i=0;i<rows.length;i++) rows[i].remove();
       playerEl.insertAdjacentHTML("beforeend", meta);
       return;
     }
     playerEl.innerHTML = '<div id="spHost"><div id="spMount"></div></div>' + meta;
-    controllerHost = $("spHost");
+    controllerHost = $("spHost"); spReady = false; pendingUri = null;
     spApi.createController($("spMount"), {uri:uri, width:"100%", height:152}, function(c){
       controller = c;
       c.addListener("playback_update", function(e){ if (e && e.data && e.data.isPaused === false) userPlayed = true; });
-      c.addListener("ready", function(){ if (userPlayed && autoplay) { try { c.play(); } catch(e){} } });
+      c.addListener("ready", function(){
+        spReady = true;
+        if (pendingUri) { var u = pendingUri; pendingUri = null; c.loadUri(u); }
+        if (userPlayed && autoplay) { try { c.play(); } catch(e){} }
+      });
     });
   } else {
     controller = null; controllerHost = null;
@@ -329,38 +361,72 @@ function ticketHtml(x){
     '<div class="scores"><span>Live ' + dots(x.live) + '</span><span>Fit ' + dots(x.fit) + '</span></div>' + clash +
     '<div class="links">' + tix + rev + '</div></div>';
 }
+function pileName(p){ return p === "rest" ? "remaining" : p === "yes" ? "shortlisted" : "passed"; }
+function renderChrome(){
+  $("piles").innerHTML = PILES.map(function(p){
+    return '<button type="button" class="pile" data-pile="' + p[0] + '" aria-pressed="' + (pile === p[0]) + '"><b>' + members(p[0]).length + '</b>' + p[1] + '</button>';
+  }).join("");
+  $("order").textContent = shuffle ? "Order: random" : "Order: by date";
+  $("order").setAttribute("aria-pressed", shuffle);
+  $("order").title = shuffle ? "Switch back to soonest first" : "Shuffle into a completely random order";
+  $("order").hidden = view !== "cards";
+}
 function render(){
-  var q = queue(), all = pool(), x = q[0];
-  $("progress").textContent = x ? (all.length - q.length + 1) + " of " + all.length + " shows" : all.length + " shows seen";
-  $("listCount").textContent = shows.filter(function(s){ return picks[s.id] === "yes"; }).length;
-  $("btnUndo").disabled = !history.length;
+  renderChrome();
+  if (view === "list") { renderList(); return; }
+  var q = queue(), total = runTotal(), x = q[0];
+  $("progress").textContent = q.length + " left of " + total + " " + pileName(pile);
+  $("btnUndo").disabled = !undoStack.length;
   $("btnNo").disabled = $("btnYes").disabled = !x;
   if (!x) {
-    var yes = all.filter(function(s){ return picks[s.id] === "yes"; }).length;
-    stackEl.innerHTML = '<div class="done"><h2>That\'s every show</h2><p>You shortlisted ' + yes + ' of ' + all.length + (genre === "All" ? "" : " " + esc(genre)) + ' shows.</p>' +
-      '<button class="btn" type="button" data-do="list">See your shortlist</button><button class="btn ghost" type="button" data-do="again">Go through the passed ones again</button></div>';
+    var html, nYes = members("yes").length, nNo = members("no").length;
+    if (pile === "rest") {
+      html = '<h2>Nothing left to decide</h2><p>' + nYes + ' shortlisted and ' + nNo + ' passed' + (genre === "All" ? "" : " in " + esc(genre)) + '.</p>' +
+        '<button class="btn" type="button" data-pile="yes">Go through the shortlist (' + nYes + ')</button>' +
+        '<button class="btn ghost" type="button" data-pile="no">Go through the passed ones (' + nNo + ')</button>';
+    } else if (!total) {
+      html = '<h2>No ' + pileName(pile) + ' shows yet</h2><p>' + (pile === "yes" ? "Swipe a ticket right to shortlist it." : "Swipe a ticket left to pass on it.") + '</p>' +
+        '<button class="btn" type="button" data-pile="rest">Back to the remaining shows</button>';
+    } else {
+      html = '<h2>End of this pile</h2><p>You went through all ' + total + ' ' + pileName(pile) + ' shows.</p>' +
+        '<button class="btn" type="button" data-pile="' + pile + '">Go through it again</button>' +
+        '<button class="btn ghost" type="button" data-pile="rest">Back to the remaining shows</button>';
+    }
+    stackEl.innerHTML = '<div class="done">' + html + '</div>';
     renderPlayer(null); return;
   }
   stackEl.innerHTML = (q.length > 1 ? '<div class="under"></div>' : "") + '<article class="ticket" id="ticket" aria-live="polite">' + ticketHtml(x) + '</article>';
   bindDrag($("ticket"));
   renderPlayer(x);
 }
-stackEl.addEventListener("click", function(e){
-  var b = e.target.closest("button[data-do]"); if (!b) return;
-  if (b.dataset.do === "list") show("list");
-  else { pool().forEach(function(s){ if (picks[s.id] === "no") delete picks[s.id]; }); history = []; persist(); render(); }
+function setPile(p){ pile = p; startRun(); render(); }
+function setView(v){
+  view = v;
+  $("deckView").hidden = v !== "cards"; $("listView").hidden = v !== "list";
+  $("viewCards").setAttribute("aria-pressed", v === "cards"); $("viewList").setAttribute("aria-pressed", v === "list");
+  if (v === "cards") startRun();
+  render();
+}
+document.addEventListener("click", function(e){
+  var b = e.target.closest("button[data-pile]"); if (b) setPile(b.dataset.pile);
 });
 function decide(val){
+  if (view !== "cards") return;
   var x = queue()[0]; if (!x) return;
   var el = $("ticket"), dir = val === "yes" ? 1 : -1;
-  picks[x.id] = val; history.push(x.id); persist();
+  undoStack.push({id:x.id, prev:picks[x.id] || null});
+  picks[x.id] = val; reviewed[x.id] = true; persist();
   if (el) {
     el.classList.add("fly"); el.style.transform = "translateX(" + dir * 520 + "px) rotate(" + dir * 18 + "deg)"; el.style.opacity = "0";
     var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     setTimeout(render, reduce ? 0 : 240);
   } else render();
 }
-function undo(){ var id = history.pop(); if (!id) return; delete picks[id]; persist(); render(); }
+function undo(){
+  var u = undoStack.pop(); if (!u) return;
+  if (u.prev) picks[u.id] = u.prev; else delete picks[u.id];
+  delete reviewed[u.id]; persist(); render();
+}
 function bindDrag(el){
   var sx = 0, dx = 0, active = false;
   el.addEventListener("pointerdown", function(e){
@@ -386,8 +452,11 @@ function bindDrag(el){
 $("btnYes").onclick = function(){ decide("yes"); };
 $("btnNo").onclick = function(){ decide("no"); };
 $("btnUndo").onclick = undo;
+$("viewCards").onclick = function(){ setView("cards"); };
+$("viewList").onclick = function(){ setView("list"); };
+$("order").onclick = function(){ shuffle = !shuffle; if (shuffle) reshuffle(); persist(); render(); };
 document.addEventListener("keydown", function(e){
-  if ($("deckView").hidden || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if (view !== "cards" || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
   if (e.key === "ArrowRight") decide("yes"); else if (e.key === "ArrowLeft") decide("no"); else if (e.key === "Backspace" || e.key === "z") undo();
 });
 
@@ -396,44 +465,38 @@ var chipsEl = $("chips");
 chipsEl.innerHTML = genres.map(function(g){ return '<button type="button" class="chip" data-g="' + esc(g) + '" aria-pressed="' + (g === genre) + '">' + esc(g) + '</button>'; }).join("");
 chipsEl.addEventListener("click", function(e){
   var b = e.target.closest(".chip"); if (!b) return;
-  genre = b.dataset.g; history = []; persist();
+  genre = b.dataset.g; persist();
   Array.prototype.forEach.call(chipsEl.children, function(c){ c.setAttribute("aria-pressed", c.dataset.g === genre); });
-  render();
+  startRun(); render();
 });
 
-// ---- shortlist ----
+// ---- list view of the current pile ----
+var MOVES = {rest:[["yes","Shortlist"],["no","Pass"]], yes:[["no","Pass"],["rest","Back to remaining"]], no:[["yes","Shortlist"],["rest","Back to remaining"]]};
 function renderList(){
-  var rows = shows.filter(function(s){ return picks[s.id] === "yes"; });
-  if (!rows.length) { listEl.innerHTML = '<div class="done"><h2>Nothing shortlisted yet</h2><p>Swipe a ticket right to keep it here.</p><button class="btn" type="button" data-do="deck">Back to the deck</button></div>'; return; }
+  var rows = members(pile);
+  $("progress").textContent = rows.length + " " + pileName(pile) + (rows.length === 1 ? " show" : " shows") + ", by date";
+  if (!rows.length) {
+    listEl.innerHTML = '<div class="done"><h2>No ' + pileName(pile) + ' shows</h2><p>' +
+      (pile === "yes" ? "Swipe a ticket right to shortlist it." : pile === "no" ? "Swipe a ticket left to pass on it." : "You've decided on every show.") + '</p></div>';
+    return;
+  }
   listEl.innerHTML = rows.map(function(x){
     var p = dateParts(x.d);
+    var moves = MOVES[pile].map(function(m){ return '<button type="button" class="x" data-id="' + x.id + '" data-to="' + m[0] + '">' + m[1] + '</button>'; }).join("");
     return '<div class="row-item"><div class="d">' + p.day + " " + p.mon + '<small>' + p.wd + '</small></div>' +
       '<div><div class="n">' + esc(x.a) + '</div><div class="v">' + esc(x.v) + ' · ' + p.until.toLowerCase() + (x.clash.length ? ' · same night as ' + esc(x.clash.join(", ")) : "") + '</div></div>' +
-      '<button type="button" class="x" data-rm="' + x.id + '" aria-label="Remove ' + esc(x.a) + '">Remove</button>' +
       '<div class="l">' + (x.tix ? '<a href="' + x.tix + '" target="_blank" rel="noopener">' + (x.tixExact ? "Tickets" : "Venue tickets") + ' ↗</a>' : "") +
-      '<a href="' + spUrl(x) + '" target="_blank" rel="noopener">Spotify ↗</a><a href="' + ytUrl(x) + '" target="_blank" rel="noopener">YouTube ↗</a></div></div>';
+      '<a href="' + spUrl(x) + '" target="_blank" rel="noopener">Spotify ↗</a><a href="' + ytUrl(x) + '" target="_blank" rel="noopener">YouTube ↗</a><span class="mv">' + moves + '</span></div></div>';
   }).join("");
 }
 listEl.addEventListener("click", function(e){
-  var b = e.target.closest("button"); if (!b) return;
-  if (b.dataset.do === "deck") { show("deck"); return; }
-  if (b.dataset.rm) { delete picks[b.dataset.rm]; persist(); renderList(); render(); }
+  var b = e.target.closest("button[data-to]"); if (!b) return;
+  if (b.dataset.to === "rest") delete picks[b.dataset.id]; else picks[b.dataset.id] = b.dataset.to;
+  persist(); render();
 });
 
-function show(view){
-  var isList = view === "list";
-  $("deckView").hidden = isList; $("listView").hidden = !isList;
-  $("tabDeck").setAttribute("aria-pressed", !isList); $("tabList").setAttribute("aria-pressed", isList);
-  if (isList) renderList();
-  if ((location.hash === "#shortlist") !== isList) { try { history_replace(isList ? "#shortlist" : "#deck"); } catch(e){} }
-}
-function history_replace(h){ window.history.replaceState(null, "", h); }
-$("tabDeck").onclick = function(){ show("deck"); };
-$("tabList").onclick = function(){ show("list"); };
-window.addEventListener("hashchange", function(){ show(location.hash === "#shortlist" ? "list" : "deck"); });
-
+startRun();
 render();
-show(location.hash === "#shortlist" ? "list" : "deck");
 })();
 </script>
 </body>
