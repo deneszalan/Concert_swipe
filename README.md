@@ -1,4 +1,4 @@
-# Concert Swipe Budapest
+# Soundcheck
 
 Swipe through upcoming Budapest concerts, listen to each act in the embedded Spotify player, and keep a shortlist.
 
