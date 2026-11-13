@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concert Swipe Budapest</title>
+<meta name="description" content="Swipe through upcoming Budapest concerts, listen on Spotify, and keep a shortlist.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Layout idea: one ticket stub on a dark venue wall; player and three actions sit under it. */
+  :root{
+    color-scheme: dark;
+    --wall:#15121f;        /* venue at night */
+    --wall-2:#211c30;      /* raised surface on the wall */
+    --rule:#352e4a;
+    --paper:#f2e9d6;       /* ticket stock */
+    --paper-2:#e4d8bf;
+    --ink:#1a1626;         /* print on the ticket */
+    --ink-soft:#5b5468;
+    --text:#efeaf7;        /* text on the wall */
+    --text-soft:#a79fbb;
+    --hot:#ff4d5e;         /* accent: stamp red */
+    --go:#2ec4a6;          /* semantic: going */
+    --pass:#8e86a3;        /* semantic: pass */
+    --display:"Anton","Arial Narrow",Impact,sans-serif;
+    --body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--wall);color:var(--text);font:15px/1.45 var(--body);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  button{font:inherit;color:inherit}
+  a{color:inherit}
+  :focus-visible{outline:2px solid var(--hot);outline-offset:2px}
+  .app{max-width:460px;margin:0 auto;padding:14px 16px 28px;display:flex;flex-direction:column;gap:12px;min-height:100%}
+
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .brand{font-family:var(--display);font-size:22px;letter-spacing:.03em;text-transform:uppercase;line-height:1;margin:0}
+  .brand b{color:var(--hot);font-weight:400}
+  .tabs{display:flex;background:var(--wall-2);border:1px solid var(--rule);border-radius:999px;padding:3px}
+  .tabs button{border:0;background:none;padding:6px 12px;border-radius:999px;font-size:13px;font-weight:600;color:var(--text-soft);cursor:pointer}
+  .tabs button[aria-pressed="true"]{background:var(--paper);color:var(--ink)}
+
+  .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:none;border:1px solid var(--rule);background:none;border-radius:999px;padding:5px 11px;font-size:13px;color:var(--text-soft);cursor:pointer}
+  .chip[aria-pressed="true"]{background:var(--text);color:var(--wall);border-color:var(--text);font-weight:600}
+
+  .meta-line{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--text-soft);font-variant-numeric:tabular-nums}
+
+  /* ---- the deck ---- */
+  .stack{position:relative}
+  .ticket{background:var(--paper);color:var(--ink);border-radius:14px;padding:0;display:grid;grid-template-columns:84px minmax(0,1fr);
+    box-shadow:0 14px 34px rgba(0,0,0,.45);touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:grab;position:relative;will-change:transform}
+  .ticket.dragging{cursor:grabbing}
+  .ticket.fly{transition:transform .28s ease-in,opacity .28s ease-in}
+  .ticket.back{transition:transform .2s ease-out}
+  .under{position:absolute;inset:0;background:var(--paper-2);border-radius:14px;transform:translateY(8px) scale(.96);opacity:.5}
+  .stub{border-right:2px dashed var(--ink-soft);padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center}
+  .stub .day{font-family:var(--display);font-size:38px;line-height:1}
+  .stub .mon{font-family:var(--display);font-size:18px;letter-spacing:.08em;text-transform:uppercase;line-height:1}
+  .stub .wd{font-size:12px;color:var(--ink-soft);margin-top:4px}
+  .stub .in{margin-top:auto;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:var(--ink);color:var(--paper);border-radius:4px;padding:3px 6px}
+  .stub .in.soon{background:var(--hot);color:#fff}
+  .body{padding:14px 14px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+  .act{font-family:var(--display);font-size:30px;line-height:1.04;text-transform:uppercase;letter-spacing:.01em;margin:0;overflow-wrap:anywhere;text-wrap:balance}
+  .where{font-weight:600;font-size:14px}
+  .desc{font-size:14px}
+  .verdict{font-size:13px;color:var(--ink-soft)}
+  .scores{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;font-weight:600;margin-top:2px}
+  .dots{letter-spacing:2px;color:var(--hot)}
+  .dots i{font-style:normal;color:#c9bda3}
+  .clash{font-size:12px;font-weight:600;color:#9a2a12;background:#f6cdb8;border-radius:6px;padding:4px 8px;align-self:flex-start}
+  .links{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .links a{font-size:13px;font-weight:600;text-decoration:none;border:1.5px solid var(--ink);border-radius:999px;padding:4px 11px}
+  .links a.primary{background:var(--ink);color:var(--paper)}
+  .stamp{position:absolute;top:16px;font-family:var(--display);font-size:30px;letter-spacing:.06em;padding:2px 12px;border:4px solid;border-radius:8px;opacity:0;pointer-events:none;text-transform:uppercase}
+  .stamp.yes{left:14px;color:#0f8f77;transform:rotate(-12deg)}
+  .stamp.no{right:14px;color:#6b6480;transform:rotate(12deg)}
+
+  /* ---- player ---- */
+  .player{background:var(--wall-2);border:1px solid var(--rule);border-radius:14px;padding:8px;min-height:96px;display:flex;flex-direction:column;gap:6px}
+  .player iframe{display:block;width:100%;border:0;border-radius:12px}
+  .player .none{padding:14px 10px;color:var(--text-soft);font-size:14px}
+  .player .row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 12px;font-size:12px;color:var(--text-soft);padding:0 4px 2px}
+  .player .row a{color:var(--text);font-weight:600}
+  .player label{display:flex;align-items:center;gap:6px;cursor:pointer}
+
+  /* ---- actions ---- */
+  .actions{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:10px;align-items:center}
+  .act-btn{border:2px solid;border-radius:14px;background:none;padding:12px 10px;font-weight:700;font-size:15px;cursor:pointer}
+  .act-btn.no{border-color:var(--pass);color:var(--text)}
+  .act-btn.yes{border-color:var(--go);background:var(--go);color:#06231d}
+  .act-btn.undo{border:1px solid var(--rule);color:var(--text-soft);font-size:13px;font-weight:600;padding:10px 12px;border-radius:999px}
+  .act-btn:disabled{opacity:.35;cursor:default}
+  .hint{text-align:center;font-size:12px;color:var(--text-soft);margin:0}
+
+  .done{background:var(--wall-2);border:1px dashed var(--rule);border-radius:14px;padding:26px 18px;text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}
+  .done h2{font-family:var(--display);font-weight:400;font-size:26px;text-transform:uppercase;margin:0}
+  .done p{margin:0;color:var(--text-soft)}
+  .btn{border:0;background:var(--paper);color:var(--ink);font-weight:700;border-radius:999px;padding:9px 16px;cursor:pointer}
+  .btn.ghost{background:none;border:1px solid var(--rule);color:var(--text)}
+
+  /* ---- shortlist ---- */
+  .list{display:flex;flex-direction:column;gap:8px}
+  .row-item{background:var(--wall-2);border:1px solid var(--rule);border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:4px 12px;align-items:center}
+  .row-item .d{font-family:var(--display);font-size:18px;line-height:1.05;text-transform:uppercase}
+  .row-item .d small{display:block;font-family:var(--body);font-size:11px;color:var(--text-soft);text-transform:none}
+  .row-item .n{font-weight:700;overflow-wrap:anywhere}
+  .row-item .v{font-size:13px;color:var(--text-soft)}
+  .row-item .l{grid-column:2 / 4;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
+  .row-item .l a{color:var(--hot);font-weight:600;text-decoration:none}
+  .row-item .x{border:1px solid var(--rule);background:none;border-radius:999px;padding:4px 10px;font-size:12px;color:var(--text-soft);cursor:pointer}
+  .foot{font-size:12px;color:var(--text-soft);margin-top:auto;padding-top:10px}
+  .foot a{color:var(--text)}
+  [hidden]{display:none !important}
+  @media (min-width:700px){ .app{padding-top:28px} .act{font-size:34px} }
+  @media (prefers-reduced-motion: reduce){ .ticket.fly,.ticket.back{transition:none} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1 class="brand">Concert <b>Swipe</b></h1>
+    <div class="tabs" role="group" aria-label="View">
+      <button type="button" id="tabDeck" aria-pressed="true">Deck</button>
+      <button type="button" id="tabList" aria-pressed="false">Shortlist <span id="listCount">0</span></button>
+    </div>
+  </header>
+
+  <section id="deckView" aria-label="Deck">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="chips" id="chips" role="group" aria-label="Genre"></div>
+      <div class="meta-line"><span id="progress"></span><span>Soonest show first</span></div>
+      <div class="stack" id="stack"></div>
+      <div class="player" id="player"></div>
+      <div class="actions">
+        <button type="button" class="act-btn no" id="btnNo">← Pass</button>
+        <button type="button" class="act-btn undo" id="btnUndo">Undo</button>
+        <button type="button" class="act-btn yes" id="btnYes">Shortlist →</button>
+      </div>
+      <p class="hint">Swipe the ticket, or use the arrow keys. Press play once and the next acts start by themselves.</p>
+    </div>
+  </section>
+
+  <section id="listView" aria-label="Shortlist" hidden>
+    <div class="list" id="list"></div>
+  </section>
+
+  <p class="foot">Dates from Budapest venue listings as of 13 Nov 2026; check the ticket page before you buy. Music plays through Spotify's embedded player: 30-second previews, or full tracks if you're signed in to Spotify. Your picks are saved in this browser only.</p>
+</div>
+
+<script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
+<script>
+(function(){
+"use strict";
+// [date, act, venue, genre, description, fit, live, verdict, song title, spotify "type:id", review url, event ticket url]
+var RAW = [
+["2026-11-17","Psychedelic Porn Crumpets","A38","Rock","Australian psych rock",4,5,"Reviewers call it controlled chaos at hyper speed: ferocious and relentless, yet faithful to the records.","Cornflake","track:2SPI1dXVaZvR4qlwbzxdcC","https://www.expressfm.com/news/reviews/psychedelic-p-crumpets-live-at-the-wedgewood-rooms-review",null],
+["2026-11-18","Joan As Police Woman","Magyar Zene Háza","Rock","US art-soul singer-songwriter, violin and guitar",4,5,"The Arts Desk praised her as a living legend on form; The Scotsman gave her Glasgow show 4 stars.","The Magic","track:1bdwq9uYcFg3VuH8hRuKtn","https://theartsdesk.com/node/83432",null],
+["2026-11-19","Sonya + Sunny Gloom","A38","Rock","Local shoegaze and post-rock album launch",4,null,"No published live reviews found. Budapest shoegaze band whose debut single won a VIVA best video award.","Kitchenfloor","track:3NtlFJnK8Tu4GT7GhEvyS1",null,null],
+["2026-11-19","Carpenter Brut + HEALTH","Barba Negra","Electronic","Dark synthwave meets noise-industrial",4,5,"Live drummer and guitarist; described as a relentless rave for metalheads. A KOKO London review gave 9/10.","Artist page","artist:1l2oLiukA9i5jEtIyNWIEP","https://uber-rock.co.uk/?p=22944",null],
+["2026-11-21","Lenkke_","A38","Electronic","Local electronic album launch (also 22 Nov)",3,null,"No live reviews found.","Meredek","track:3I95UyZXJ3vEJBkyhv6JEu",null,null],
+["2026-11-23","Arab Strap","A38","Rock","Scottish indie cult duo",5,4,"Spoken-word delivery, so a night for listening rather than singing along. The Scotsman gave their Philophobia show 4 stars.","The First Big Weekend","track:58awxHiIkhgPvwtiAIzVGM","https://www.scotsman.com/whats-on/arts-and-entertainment/music-review-arab-strap-saint-lukes-glasgow-4440858",null],
+["2026-11-24","Deluxe","A38","Funk","French cosmic funk with hip-hop",4,5,"Their live reputation is the core of their success: explosive, funny shows that sell out the Paris Olympia.",null,null,"https://f-cat.de/en/artist/deluxe",null],
+["2026-11-24","The Last Internationale","Turbina","Blues","NY garage-blues rock, Delila Paz's big voice",5,5,"rpmonline rates them among the best live bands around. Fans call it what live music should be.","Hit Em with Your Blues","track:3us8NwsPJ2XkEYRZCq04sf",null,null],
+["2026-11-28","Kraak & Smaak","Akvárium (small)","Electronic","Dutch disco-funk, full live band",4,4,"Live band with keys, DJ and two singers. JamBase said the live show deserves more praise than the records.","Squeeze Me","track:1qev18TlW5KOrvlvkhWFF6","https://www.jambase.com/article/kraak-smaak-03-31-07-san-francisco",null],
+["2026-12-03","Tonic Walter","Turbina","Electronic","German melodic house duo, analog synths and live instruments",4,null,"No live reviews found. Compared to The Blaze, Bicep and Moderat.","Falling","track:0K6vzSQFh3aBwwm241oqiE",null,null],
+["2026-12-04","Harcsa Veronika – Gyémánt Bálint","Opus Jazz Club","Jazz","Voice and guitar duo with loops",4,4,"All About Jazz called Harcsa a brilliant vocalist and gifted entertainer, with Gyémánt locking in intensely.","Vetettem violát","track:6rBaMdndO1xmgTKMBZ5gsF",null,"https://bmc.hu/en/programs/veronika-harcsa-balint-gyemant"],
+["2026-12-05","Avatar","Barba Negra","Metal","Theatrical Swedish metal, circus-horror show",3,null,"No reviews checked. One for fans of big metal spectacle.","Hail the Apocalypse","track:0PMxzdeOobkZzeSGVV8jo9",null,"https://www.livenation.hu/en/tickets/avatar-budapest-events-edp1675792"],
+["2026-12-07","Chelsea Wolfe","Akvárium","Rock","Doom-folk, goth and industrial; heavy and hypnotic",4,4,"Everblack: tight, balanced, impossibly heavy. Heavy Mag: one of 2025's best shows. One review knocked the backing tracks.","Carrion Flowers","track:1CxQcw6AI6zjV01dN4NSfp",null,null],
+["2026-12-11","Nefeli & Abel + Bon Jour","A38","Jazz","Jazz meets fusion rock",3,null,"No live reviews found.",null,null,null,null],
+["2026-12-17","Shantel & Bucovina Club Orkestar","A38","World","Balkan brass with electronics",3,4,"Copenhagen Post: two hours of sheer fun where even the balcony joined in (5/6).","Disko Partizani","track:3ACn6cRxktkPT3HGKX1ZTz","https://cphpost.dk/?p=8517",null],
+["2026-12-18","Little G Weevil, Tommy Katona, Petendi Tamás","Akvárium","Blues","Blues guitar showdown, three Hungarian guitarists",4,null,"No reviews of this lineup found.","On My Way To Memphis","track:7uR3vPHQt01iMQh77rRL7N",null,null],
+["2026-12-18","Luís Vicente Trio ft. Malaby & Genovese","Opus Jazz Club","Jazz","Fiery free jazz",4,null,"No live reviews found.","Why No Is No?","track:2GXwyv1YjVXonaoQwlnC5l",null,null],
+["2026-12-22","Subtones (farewell)","Müpa","Jazz","Hungarian jazz-funk band's last concert",4,null,"Farewell show, so likely a long, special set. No reviews found.","Artist page","artist:5qhk0SaMZi7w3LWTYBQfro",null,null],
+["2026-12-23","Jamie Winchester & Hrutka Róbert","Akvárium","Rock","Back Underground: British-born songwriter and Hungarian guitarist",3,null,"No reviews found.","It's Your Life","track:5Af98reDnpieALzpzzfhp0",null,null],
+["2026-12-27","Téli Zaj","Dürer Kert","Rock","Winter alt and noise mini-fest across the whole venue",3,null,"Multi-band night.",null,null,null,null],
+["2026-12-29","aurevoir. – Antológia","Müpa","Rock","Hungarian instrumental post-rock and jazz; year-end show with folk, jazz and string guests",4,null,"No independent reviews found. Guests include Szabó Balázs, AWS and Hajdú Bianka.","Portugízer","track:0lnVWY8vppgZX8rfw3twUg",null,null],
+["2027-01-12","Lawrence Fields Supersonic Trio","Opus Jazz Club","Jazz","US piano trio",4,null,"No live reviews found.",null,null,null,null],
+["2027-01-15","Kassa Overall","Magyar Zene Háza","Jazz","Drummer-rapper fusing jazz and hip-hop (Warp Records)",5,5,"PAN M 360 at Montreal Jazz 2026: erases the line between jazz and hip-hop. Sold out Ronnie Scott's.","Ready To Ball","track:2jysV1V1mT3ohPd1iBYNo7","https://panm360.com/en/gig_review/fijm-2026-kassa-overall-crumbles-the-boundary-between-jazz-and-hip-hop/","https://www.zenehaza.hu/en/occasion/kassa-overall-usa"],
+["2027-01-27","Pándi Balázs & Otomo Yoshihide","Opus Jazz Club","Jazz","Drums and noise guitar improv",3,null,"One-off pairing, no reviews.","Otomo Yoshihide","artist:4P8VTkHWHX32b1xRa7uK03",null,null],
+["2027-01-30","Aki Takase & Daniel Erdmann","Opus Jazz Club","Jazz","Piano and sax avant-jazz",4,4,"Their interplay is described as telepathic; an Oslo show was vibrant, electric and subtly funny.","Isn't It Romantic?","track:0zQGMxCqGAqQW5K5Q9szDC","https://www.visitoslo.com/event/aki-takase-mike-majkowski-dag-magnus-narvesen",null],
+["2027-02-02","Gilla Band","Dürer Kert (small)","Rock","Abrasive Irish noise-rock and post-punk",5,5,"Widely called one of the most vital, chaotic live bands working. Divisive: the Irish Times gave a festival set 3 stars.","Lawman","track:5JPikGNqkUngwpppwRfiFd","https://mcgigmusic.com/?p=42687",null],
+["2027-02-05","Mats Gustafsson & Kimmo Pohjonen","Opus Jazz Club","Jazz","Sax and accordion, experimental",3,null,"One-off pairing, no reviews.","This Is Mats Gustafsson","playlist:37i9dQZF1DZ06evO4cAwi3",null,null],
+["2027-02-11","Daveform Quintet & Kurt Rosenwinkel","Magyar Zene Háza","Jazz","Modern jazz with one of the great living guitarists",4,4,"The Arts Fuse on his Regattabar quintet: band, playing and tunes all in alignment.","Caipi","track:7qTQ3PQDxQipZqioBlThhM","https://artsfuse.org/?p=329625",null],
+["2027-02-13","Julian Lage + John Medeski","Müpa","Jazz","Top jazz guitarist with an organ legend",5,5,"The same quartet at London's Royal Festival Hall was called sublime and got two standing ovations.","Artist page","artist:2TSuAchdgVzsAa9wDK1IeT","https://southlondon.co.uk/?p=254888",null],
+["2027-02-13","Carbon Based Lifeforms","A38","Electronic","Swedish ambient electronic",4,4,"Immersive sets on a big, bassy sound system; they've played planetariums, churches and a mine.","Photosynthesis","track:1Ooxm7WoFLrzibkyRj8xin","https://www.thegryphon.co.uk/2026/06/22/synchrony-without-a-setlist-carbon-based-lifeforms-at-belgrave-music-hall/",null],
+["2027-02-13","HENGE","Akvárium (small)","Electronic","Costumed cosmic rave-rock",3,5,"Won Best Live Act at the Independent Festival Awards. Part gig, part theatre, part rave.","Slingshot","track:1TOYsMwlftOZ5GZL6sF8lF","https://leedsliving.co.uk/music-dance/henge-at-brudenell-social-club-on-3-november/",null],
+["2027-02-17","Dirty Honey","Akvárium","Blues","Young US blues-rock",4,5,"One reviewer ranked them with the best live bands he had seen: great singer, rock-solid band.","When I'm Gone","track:7mVYYM1jFHP5d5ygTgjrf6","https://www.backseatmafia.com/live-review-dirty-honey-himalayas-band-corporation-sheffield-29-01-2023/",null],
+["2027-02-17","Lambchop","Magyar Zene Háza","Rock","Nashville alt-country soul, slow and lush",3,null,"No recent reviews found.","Up with People","track:4F4PtHOaintIGU09jJ9uP4",null,null],
+["2027-02-18","Kosheen","Akvárium","Electronic","Drum and bass and trip-hop veterans",3,4,"Sian Evans still sings with everything she has; a Zagreb review called them an unstoppable force on stage.","Hide U","track:5UiOzmPPJ2nu1EIxK4jEgM","https://thoughtswordsaction.com/2024/10/21/gig-review-kosheen-dorcol-platz-19-10-2024",null],
+["2027-02-19","Look Mum No Computer","Turbina","Electronic","DIY modular-synth agit-pop on homemade instruments",4,null,"No live reviews found; 85M+ YouTube views and packed shows.","Eins, Zwei, Drei","track:26xlJAlQoCMbnAWd0sGCQf",null,null],
+["2027-02-19","Kollektiv Turmstrasse (live)","Akvárium","Electronic","Melodic techno, live set",4,3,"Tight, well-rehearsed, mid-paced sets. Nico Plagemann's solo project since 2023.","Grillen im Garten","track:3WTSVuJewaXTakNZlSiIMx","https://www.metronome.cz/en/interpret/kollektiv-turmstrasse",null],
+["2027-02-27","Julianna Barwick & Mary Lattimore","Magyar Zene Háza","Electronic","Ambient: looped voice and harp, seated show",3,null,"No reviews of the duo found.","Playlist","playlist:4p25b6DBVF6VgGdo8L8ZLM",null,"https://www.zenehaza.hu/en/occasion/julianna-barwick-mary-lattimore-usa"],
+["2027-02-27","Cafuné","Opus Jazz Club","Brazilian","Local acoustic bossa, samba and MPB",3,null,"No live reviews found.",null,null,null,null],
+["2027-03-01","Lebanon Hanover","Dürer Kert","Electronic","Cold-wave duo",3,3,"Glacial and atmospheric; the noisier, distorted moments work best live.","Gallowdance","track:74SUn8w4lYSwgOGPvVZiEo","https://xpressmag.com.au/?p=225250",null],
+["2027-03-07","Front Line Assembly + Clock DVA","Dürer Kert","Electronic","Industrial pioneers",3,4,"2025 tour reviews: veterans whose old tricks still land.","Mindphaser","track:2SNoyv4Gt5OZg7gDDcJo6S","https://musipediaofmetal.blogspot.com/2025/05/a-view-from-back-of-room-front-line.html",null],
+["2027-03-10","Klangphonics","Akvárium","Electronic","Live techno band: drums, guitar, synths",4,4,"Hot Press in Dublin: drums at the centre, effortlessly cool, and the floor shook as the crowd danced.","Feeling Pressure","track:6Z3yhm4PKFxYEc0N8fX8UD","https://www.hotpress.com/music/live-report-klangphonics-energise-opium-23083200",null],
+["2027-03-13","Warhaus","Magyar Zene Háza","Rock","Balthazar frontman; smoky Cave and Cohen-style art rock",5,5,"Maxazine: exceeded expectations. His 2025 show here sold out.","Love's a Stranger","track:279LczresTWVkCsdLwgJSZ","https://maxazine.nl/2025/03/22/een-meeslepende-avond-met-warhaus-in-eindhoven","https://zenehaza.hu/en/occasion/warhaus-bel"],
+["2027-03-23","Son Lux","Magyar Zene Háza","Electronic","Art-rock and electronic trio (Everything Everywhere score)",4,5,"Crack praised astounding musicianship and a very tight band.","Easy","track:0BQMym4vrghWvHFDQybmRa","https://crackmagazine.net/?p=24650","https://www.zenehaza.hu/en/occasion/son-lux-usa"],
+["2027-03-25","KALEO","Budapest Arena","Blues","Icelandic blues-rock; A/B 10th anniversary tour",4,4,"Reviewers praise the raw energy and JJ Julius Son's voice.","Way down We Go","track:0y1QJc3SJVPKJ1OvFmFqe6","https://nysmusic.com/?p=561514","https://www.livenation.hu/en/kaleo-tickets-adp833600"],
+["2027-04-01","Poppy Ackroyd","A38","Jazz","Piano and violin, cinematic neo-classical",3,3,"Minimal, understated sets; loops turn two instruments into something orchestral.","Feathers","track:1nfOByubOO5cdNXPOnbbe4","https://admin.contactmusic.com/music/poppy-ackroyd-komedia-brighton-01-05-2018-live-review",null],
+["2027-04-04","Leo Middea","A38","Brazilian","MPB, samba, bossa; new full-band show",5,null,"No written reviews found, but 500+ shows in 27 countries.",null,null,null,"https://shotgun.live/en/events/leo-middea-a-38-budapest"],
+["2027-04-10","Tramhaus","A38","Rock","Rising Dutch post-punk",4,5,"Word-of-mouth live sensation (Primavera, SXSW). One reviewer said he felt like he'd just played a rugby match.","The Goat","track:4HQ0lXAa4GnSffEILjhnMf","https://brightonandhovenews.org/?p=204472",null],
+["2027-04-24","Rage & Sonata Arctica","Barba Negra","Metal","Symphonic power-metal co-headline",3,null,"No reviews of this pairing yet.","FullMoon","track:2OcgUwz7uomyLpOi0juero",null,null],
+["2027-04-25","16 Horsepower","Magyar Zene Háza","Rock","Reunited gothic-Americana legends (David Eugene Edwards)",4,4,"2026 reunion shows: in good shape, well rehearsed, balancing delicacy and roughness.","Black Soul Choir","track:3GY4WMSjvwOfcL8FLhqGV4","https://gothiccountry.se/blog/772-16-horsepower-reunion-concert.html",null],
+["2027-05-01","Sabaton + The Legendary Orchestra","MVM Dome","Metal","Swedish power metal with a huge castle-stage production",4,5,"Metal Hammer compared them to Iron Maiden for this generation, with enormous live shows.","Primo Victoria","track:5DbAOJ5dYW5A9xBhkeb33t","https://www.loudersound.com/bands-artists/live-performances/sabaton-legendary-live-review-manchester","https://mvm-dome.hu/en/events/sabaton"],
+["2027-05-12","Johnny Delaware","A38","Rock","US folk-rock and indie-pop",3,null,"No live reviews found.","Jungle Full of Ghosts","track:3fey5tIQKajgzKrVgNSYWA",null,null],
+["2027-05-21","Stereo MC's","Akvárium","Electronic","90s electro hip-hop, live band",3,4,"Described as phenomenal live; 30-year-old songs that don't sound dated.","Artist page","artist:1k8VBufn1nBs8LN9n4snc8","https://www.ifitstooloud.com/2025/01/live-shows-stereo-mcs-and-haasan.html",null],
+["2027-05-21","Budapest Beer Week","Dürer Kert","Rock","Craft beer and free rock gigs (to 23 May)",3,null,"Multi-band event.",null,null,null,null],
+["2027-05-23","Eliane Elias","Müpa","Brazilian","Jazz piano with bossa and samba vocals",4,4,"The Arts Fuse: the magic is how easily she slips between musical dialects. Tours with a top-tier quartet.","So Nice (Samba de Verao)","track:4JP5ptajY7ON3UY8q6EMQ8","https://artsfuse.org/?p=311978",null],
+["2027-06-05","Allah-Las","A38","Rock","LA surf and psych rock",4,3,"Laid-back and grittier than on record. Mostly positive, but one LA reviewer found the show a letdown.","Catamaran","track:4H0KLsPpr5atperrHGfz3x","https://glidemagazine.com/237380/allah-las-take-fans-on-a-psych-surf-trip-at-wonder-ballroom-in-portland-or-show-review/",null],
+["2027-06-14","The Interrupters + The Suicide Machines","Akvárium","Rock","LA ska-punk, high energy",3,null,"No reviews checked.","She's Kerosene","track:60FJeNTK5edr72G2xtCWuP",null,null],
+["2027-06-19","OSEES","A38","Rock","Wild garage-psych with two drummers",5,5,"One review called them quite possibly the best live band working. Long jams, nearly two-hour sets.","The Dream","track:1JdweBSkJMLjnNW6LzmXJ8","https://www.thenote.com.au/gigs/review-osees-the-gov",null],
+["2027-07-20","Joe Bonamassa","Budapest Park","Blues","Blues-rock guitar master",5,5,"Glasgow 2025 was called a masterclass in blues-rock; Liverpool Sound and Vision gave the same tour 5 stars.","Artist page","artist:2SNzxY1OsSCHBLVi77mpPQ","https://bluesmatters.com/gig-reviews/joe-bonamassa-live-review-glasgow-2025/",null],
+["2027-09-10","Mari Froes","Budapest Park","Brazilian","MPB, bossa nova, samba, jazz",5,4,"Few written reviews, but her 2026 Budapest show sold out and a second date was added. One listing shows 27 Sep: check the ticket page.","Figa De Guiné","track:6NHAz8a9j2yZkP2TP48yLK",null,null],
+["2027-10-05","Mass of the Fermenting Dregs","Akvárium (small)","Rock","Japanese indie and shoegaze rock",3,4,"Sold-out UK rooms in 2025, and reviewers rate the live show highly.","Aoi, Koi, Daidaiiro No Hi","track:5S8jc9sCle880PjbwnEzsY","https://avo-magazine.com/en/2026/05/live-report-fizz-foam-froth-mass-of-the-fermenting-dregs-at-the-hare-and-hounds/",null]
+];
+var VENUES = {
+  "A38":["Club","https://www.a38.hu/en/programs"],
+  "Akvárium (small)":["Club","https://akvariumklub.hu/programok"],
+  "Dürer Kert (small)":["Club","https://durerkert.com/"],
+  "Opus Jazz Club":["Club","https://bmc.hu/en/programs"],
+  "Turbina":["Club","https://turbinabudapest.com/"],
+  "Akvárium":["Hall","https://akvariumklub.hu/programok"],
+  "Dürer Kert":["Hall","https://durerkert.com/"],
+  "Magyar Zene Háza":["Hall","https://zenehaza.hu/en/current-programs"],
+  "Müpa":["Hall","https://mupa.hu/en/"],
+  "Barba Negra":["Hall","https://barbanegra.hu/"],
+  "Budapest Park":["Arena","https://www.livenation.hu/en/budapest-park-tickets-vdp1401679"],
+  "Budapest Arena":["Arena","https://www.livenation.hu/en/papp-l%C3%A1szl%C3%B3-budapest-sportar%C3%A9na-tickets-vdp9757"],
+  "MVM Dome":["Arena","https://mvm-dome.hu/en/"]
+};
+
+function slug(s){ return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""); }
+function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+function iso(dt){ return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0"); }
+
+var todayIso = iso(new Date());
+var shows = RAW.map(function(r){
+  var v = VENUES[r[2]] || ["Hall",null], sp = r[9] ? r[9].split(":") : null;
+  return {id:slug(r[1]), d:r[0], a:r[1], v:r[2], g:r[3], desc:r[4], fit:r[5], live:r[6], ver:r[7], song:r[8],
+    sp: sp ? {type:sp[0], sid:sp[1]} : null, rev:r[10], tix:r[11] || v[1], tixExact:!!r[11], tier:v[0]};
+}).filter(function(x){ return x.d >= todayIso; }).sort(function(a,b){ return a.d.localeCompare(b.d) || a.a.localeCompare(b.a); });
+// same-night clashes, computed from the dates
+shows.forEach(function(x){ x.clash = shows.filter(function(y){ return y !== x && y.d === x.d; }).map(function(y){ return y.a; }); });
+
+// ---- saved picks (this browser only) ----
+var KEY = "concertSwipe.v1", picks = {}, genre = "All", autoplay = true;
+try { var saved = JSON.parse(localStorage.getItem(KEY) || "{}"); picks = saved.picks || {}; genre = saved.genre || "All"; autoplay = saved.autoplay !== false; } catch(e){}
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify({picks:picks, genre:genre, autoplay:autoplay})); } catch(e){} }
+var history = [];
+
+var genres = ["All"].concat(shows.map(function(x){return x.g;}).filter(function(g,i,arr){ return arr.indexOf(g) === i; }));
+if (genres.indexOf(genre) < 0) genre = "All";
+
+var $ = function(id){ return document.getElementById(id); };
+var stackEl = $("stack"), playerEl = $("player"), listEl = $("list");
+
+function pool(){ return shows.filter(function(x){ return genre === "All" || x.g === genre; }); }
+function queue(){ return pool().filter(function(x){ return !picks[x.id]; }); }
+function dateParts(d){
+  var dt = new Date(d + "T12:00:00");
+  var days = Math.round((dt - new Date(todayIso + "T12:00:00")) / 86400000);
+  return {day:dt.getDate(), mon:dt.toLocaleDateString("en-GB",{month:"short"}), wd:dt.toLocaleDateString("en-GB",{weekday:"short"}) + " " + dt.getFullYear(),
+    until: days === 0 ? "Tonight" : days === 1 ? "Tomorrow" : days < 60 ? "In " + days + " days" : "In " + Math.round(days/30.4) + " months", soon: days <= 14};
+}
+function dots(n){ if (n == null) return '<span class="dots"><i>no reviews</i></span>'; var s = ""; for (var i=1;i<=5;i++) s += i<=n ? "●" : "<i>●</i>"; return '<span class="dots" aria-label="'+n+' of 5">'+s+'</span>'; }
+function ytUrl(x){ return "https://www.youtube.com/results?search_query=" + encodeURIComponent(x.a + " live"); }
+function spUrl(x){ return x.sp ? "https://open.spotify.com/" + x.sp.type + "/" + x.sp.sid : "https://open.spotify.com/search/" + encodeURIComponent(x.a); }
+
+// ---- Spotify player: iFrame API when it loads, plain embed otherwise ----
+var spApi = null, controller = null, controllerHost = null, userPlayed = false, currentId = null;
+window.onSpotifyIframeApiReady = function(api){ spApi = api; currentId = null; renderPlayer(queue()[0]); };
+
+function renderPlayer(x){
+  if (!x) { playerEl.hidden = true; return; }
+  playerEl.hidden = false;
+  if (currentId === x.id) return;
+  currentId = x.id;
+  var meta = '<div class="row"><span>' + (x.sp ? "♪ " + esc(x.song || x.a) : "No Spotify track on file") + '</span>' +
+    '<span><a href="' + spUrl(x) + '" target="_blank" rel="noopener">Open in Spotify ↗</a> · <a href="' + ytUrl(x) + '" target="_blank" rel="noopener">Live on YouTube ↗</a></span></div>' +
+    '<div class="row"><label for="autoplay"><input type="checkbox" id="autoplay"' + (autoplay ? " checked" : "") + '> Keep playing as I swipe</label></div>';
+  if (!x.sp) {
+    controller = null; controllerHost = null;
+    playerEl.innerHTML = '<div class="none">No Spotify track on file for this act. Try the links below.</div>' + meta;
+    return;
+  }
+  var uri = "spotify:" + x.sp.type + ":" + x.sp.sid;
+  if (spApi) {
+    if (controller && controllerHost && playerEl.contains(controllerHost)) {
+      controller.loadUri(uri);
+      if (userPlayed && autoplay) { try { controller.play(); } catch(e){} }
+      var rows = playerEl.querySelectorAll(".row"); for (var i=0;i<rows.length;i++) rows[i].remove();
+      playerEl.insertAdjacentHTML("beforeend", meta);
+      return;
+    }
+    playerEl.innerHTML = '<div id="spHost"><div id="spMount"></div></div>' + meta;
+    controllerHost = $("spHost");
+    spApi.createController($("spMount"), {uri:uri, width:"100%", height:152}, function(c){
+      controller = c;
+      c.addListener("playback_update", function(e){ if (e && e.data && e.data.isPaused === false) userPlayed = true; });
+      c.addListener("ready", function(){ if (userPlayed && autoplay) { try { c.play(); } catch(e){} } });
+    });
+  } else {
+    controller = null; controllerHost = null;
+    playerEl.innerHTML = '<iframe title="Spotify player: ' + esc(x.a) + '" height="152" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" src="https://open.spotify.com/embed/' + x.sp.type + '/' + x.sp.sid + '"></iframe>' + meta;
+  }
+}
+playerEl.addEventListener("change", function(e){ if (e.target.id === "autoplay") { autoplay = e.target.checked; persist(); } });
+
+// ---- deck ----
+function ticketHtml(x){
+  var p = dateParts(x.d);
+  var tix = x.tix ? '<a class="primary" href="' + x.tix + '" target="_blank" rel="noopener">' + (x.tixExact ? "Tickets" : "Venue tickets") + ' ↗</a>' : "";
+  var rev = x.rev ? '<a href="' + x.rev + '" target="_blank" rel="noopener">Review ↗</a>' : "";
+  var clash = x.clash.length ? '<div class="clash">Same night: ' + esc(x.clash.join(", ")) + '</div>' : "";
+  return '<div class="stamp yes">Shortlist</div><div class="stamp no">Pass</div>' +
+    '<div class="stub"><div class="day">' + p.day + '</div><div class="mon">' + p.mon + '</div><div class="wd">' + p.wd + '</div><div class="in' + (p.soon ? " soon" : "") + '">' + p.until + '</div></div>' +
+    '<div class="body"><div class="eyebrow">Next date in Hungary · ' + esc(x.g) + '</div>' +
+    '<h2 class="act">' + esc(x.a) + '</h2>' +
+    '<div class="where">' + esc(x.v) + ', Budapest · ' + x.tier + '</div>' +
+    '<div class="desc">' + esc(x.desc) + '</div>' +
+    '<div class="verdict">' + esc(x.ver) + '</div>' +
+    '<div class="scores"><span>Live ' + dots(x.live) + '</span><span>Fit ' + dots(x.fit) + '</span></div>' + clash +
+    '<div class="links">' + tix + rev + '</div></div>';
+}
+function render(){
+  var q = queue(), all = pool(), x = q[0];
+  $("progress").textContent = x ? (all.length - q.length + 1) + " of " + all.length + " shows" : all.length + " shows seen";
+  $("listCount").textContent = shows.filter(function(s){ return picks[s.id] === "yes"; }).length;
+  $("btnUndo").disabled = !history.length;
+  $("btnNo").disabled = $("btnYes").disabled = !x;
+  if (!x) {
+    var yes = all.filter(function(s){ return picks[s.id] === "yes"; }).length;
+    stackEl.innerHTML = '<div class="done"><h2>That\'s every show</h2><p>You shortlisted ' + yes + ' of ' + all.length + (genre === "All" ? "" : " " + esc(genre)) + ' shows.</p>' +
+      '<button class="btn" type="button" data-do="list">See your shortlist</button><button class="btn ghost" type="button" data-do="again">Go through the passed ones again</button></div>';
+    renderPlayer(null); return;
+  }
+  stackEl.innerHTML = (q.length > 1 ? '<div class="under"></div>' : "") + '<article class="ticket" id="ticket" aria-live="polite">' + ticketHtml(x) + '</article>';
+  bindDrag($("ticket"));
+  renderPlayer(x);
+}
+stackEl.addEventListener("click", function(e){
+  var b = e.target.closest("button[data-do]"); if (!b) return;
+  if (b.dataset.do === "list") show("list");
+  else { pool().forEach(function(s){ if (picks[s.id] === "no") delete picks[s.id]; }); history = []; persist(); render(); }
+});
+function decide(val){
+  var x = queue()[0]; if (!x) return;
+  var el = $("ticket"), dir = val === "yes" ? 1 : -1;
+  picks[x.id] = val; history.push(x.id); persist();
+  if (el) {
+    el.classList.add("fly"); el.style.transform = "translateX(" + dir * 520 + "px) rotate(" + dir * 18 + "deg)"; el.style.opacity = "0";
+    var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setTimeout(render, reduce ? 0 : 240);
+  } else render();
+}
+function undo(){ var id = history.pop(); if (!id) return; delete picks[id]; persist(); render(); }
+function bindDrag(el){
+  var sx = 0, dx = 0, active = false;
+  el.addEventListener("pointerdown", function(e){
+    if (e.target.closest("a,button")) return;
+    active = true; sx = e.clientX; dx = 0; el.classList.remove("back"); el.classList.add("dragging");
+    try { el.setPointerCapture(e.pointerId); } catch(err){}
+  });
+  el.addEventListener("pointermove", function(e){
+    if (!active) return;
+    dx = e.clientX - sx;
+    el.style.transform = "translateX(" + dx + "px) rotate(" + dx / 22 + "deg)";
+    el.querySelector(".stamp.yes").style.opacity = Math.max(0, Math.min(1, dx / 90));
+    el.querySelector(".stamp.no").style.opacity = Math.max(0, Math.min(1, -dx / 90));
+  });
+  function end(){
+    if (!active) return; active = false; el.classList.remove("dragging");
+    if (Math.abs(dx) > 90) { decide(dx > 0 ? "yes" : "no"); return; }
+    el.classList.add("back"); el.style.transform = "";
+    el.querySelector(".stamp.yes").style.opacity = 0; el.querySelector(".stamp.no").style.opacity = 0;
+  }
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
+$("btnYes").onclick = function(){ decide("yes"); };
+$("btnNo").onclick = function(){ decide("no"); };
+$("btnUndo").onclick = undo;
+document.addEventListener("keydown", function(e){
+  if ($("deckView").hidden || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if (e.key === "ArrowRight") decide("yes"); else if (e.key === "ArrowLeft") decide("no"); else if (e.key === "Backspace" || e.key === "z") undo();
+});
+
+// ---- genre chips ----
+var chipsEl = $("chips");
+chipsEl.innerHTML = genres.map(function(g){ return '<button type="button" class="chip" data-g="' + esc(g) + '" aria-pressed="' + (g === genre) + '">' + esc(g) + '</button>'; }).join("");
+chipsEl.addEventListener("click", function(e){
+  var b = e.target.closest(".chip"); if (!b) return;
+  genre = b.dataset.g; history = []; persist();
+  Array.prototype.forEach.call(chipsEl.children, function(c){ c.setAttribute("aria-pressed", c.dataset.g === genre); });
+  render();
+});
+
+// ---- shortlist ----
+function renderList(){
+  var rows = shows.filter(function(s){ return picks[s.id] === "yes"; });
+  if (!rows.length) { listEl.innerHTML = '<div class="done"><h2>Nothing shortlisted yet</h2><p>Swipe a ticket right to keep it here.</p><button class="btn" type="button" data-do="deck">Back to the deck</button></div>'; return; }
+  listEl.innerHTML = rows.map(function(x){
+    var p = dateParts(x.d);
+    return '<div class="row-item"><div class="d">' + p.day + " " + p.mon + '<small>' + p.wd + '</small></div>' +
+      '<div><div class="n">' + esc(x.a) + '</div><div class="v">' + esc(x.v) + ' · ' + p.until.toLowerCase() + (x.clash.length ? ' · same night as ' + esc(x.clash.join(", ")) : "") + '</div></div>' +
+      '<button type="button" class="x" data-rm="' + x.id + '" aria-label="Remove ' + esc(x.a) + '">Remove</button>' +
+      '<div class="l">' + (x.tix ? '<a href="' + x.tix + '" target="_blank" rel="noopener">' + (x.tixExact ? "Tickets" : "Venue tickets") + ' ↗</a>' : "") +
+      '<a href="' + spUrl(x) + '" target="_blank" rel="noopener">Spotify ↗</a><a href="' + ytUrl(x) + '" target="_blank" rel="noopener">YouTube ↗</a></div></div>';
+  }).join("");
+}
+listEl.addEventListener("click", function(e){
+  var b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.do === "deck") { show("deck"); return; }
+  if (b.dataset.rm) { delete picks[b.dataset.rm]; persist(); renderList(); render(); }
+});
+
+function show(view){
+  var isList = view === "list";
+  $("deckView").hidden = isList; $("listView").hidden = !isList;
+  $("tabDeck").setAttribute("aria-pressed", !isList); $("tabList").setAttribute("aria-pressed", isList);
+  if (isList) renderList();
+  if ((location.hash === "#shortlist") !== isList) { try { history_replace(isList ? "#shortlist" : "#deck"); } catch(e){} }
+}
+function history_replace(h){ window.history.replaceState(null, "", h); }
+$("tabDeck").onclick = function(){ show("deck"); };
+$("tabList").onclick = function(){ show("list"); };
+window.addEventListener("hashchange", function(){ show(location.hash === "#shortlist" ? "list" : "deck"); });
+
+render();
+show(location.hash === "#shortlist" ? "list" : "deck");
+})();
+</script>
+</body>
+</html>
