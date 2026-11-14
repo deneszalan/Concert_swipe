@@ -268,7 +268,7 @@ var KEY = "concertSwipe.v1", picks = {}, genre = "All", autoplay = true, shuffle
 try { var saved = JSON.parse(localStorage.getItem(KEY) || "{}"); picks = saved.picks || {}; genre = saved.genre || "All"; autoplay = saved.autoplay !== false; shuffle = saved.shuffle === true; } catch(e){}
 function persist(){ try { localStorage.setItem(KEY, JSON.stringify({picks:picks, genre:genre, autoplay:autoplay, shuffle:shuffle})); } catch(e){} }
 
-var PILES = [["rest","Remaining"],["yes","Shortlist"],["no","Passed"]];
+var PILES = [["rest","Remaining"],["no","Passed"],["yes","Shortlist"]];
 var pile = "rest", view = "cards";
 var undoStack = [], reviewed = {}, snap = null, rand = {};
 function reshuffle(){ shows.forEach(function(x){ rand[x.id] = Math.random(); }); }
